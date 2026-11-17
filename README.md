@@ -108,3 +108,25 @@ The following data is NOT available in ERPNext and must be entered manually:
 - **Villa rent and floor areas** (not tracked in ERPNext)
 - **Monthly overhead breakdown** (not in ERPNext)
 - **Employee cost components** (only CTC, no salary breakdown)
+
+
+## Importing Web App Data into Excel Workbook
+
+The web app's "Download Excel" button creates a simple data file. To get a **fully-formatted workbook** with all formulas, charts, and validation:
+
+1. Export data from the web app (Settings -> Save backup file -> riman-backup-YYYY-MM-DD.json)
+2. Run the import script:
+   python import_to_excel.py riman-backup-YYYY-MM-DD.json
+3. Open Riman_Cost_Accounting_FILLED.xlsx in Excel
+4. All formulas, charts, and validation will be intact with your data populated
+
+The import script maps web app data to the workbook's table structures:
+- Staff -> Employee Cost Master (EmpM table)
+- Dresses -> Job Orders and Dresses (Orders table)
+- Purchases -> Materials and Purchases (MatBuy table)
+- Expenses -> Monthly Overheads (OHL table)
+- Villas -> Villa Allocation (Villas table)
+- Settings -> Settings and Assumptions
+
+## License
+Private - Riman Fashion internal use.
