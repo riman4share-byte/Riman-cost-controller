@@ -1,0 +1,12 @@
+{
+  "name": "riman-cost-control",
+  "version": "1.0.0",
+  "description": "Riman Fashion - Dress and Order Costing Model",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
+  }
+}
