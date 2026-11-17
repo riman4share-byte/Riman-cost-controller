@@ -288,4 +288,145 @@ describe('compute - avgDays bug fix', () => {
     // avgDays should be 14 (divided by dayList.length=1), not NaN (divided by prices.length=0)
     expect(R.avgDays).toBe(14);
   });
+
+});
+
+describe('compute - edge cases', () => {
+  it('handles empty strings in settings', () => {
+    const S = defaults();
+    S.settings = { hoursDay: '', daysMonth: '', prodPct: '', wastage: '', margin: '', vat: 5, lang: 'en' };
+    const R = compute(S);
+    expect(R.settingsOk).toBe(false);
+    expect(R.practical).toBe(0);
+  });
+
+  it('handles zero productive percentage', () => {
+    const S = defaults();
+    S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 0, wastage: 5, margin: 30, vat: 5, lang: 'en' };
+    const R = compute(S);
+    expect(R.settingsOk).toBe(false);
+  });
+
+  it('handles staff with zero salary', () => {
+    const S = defaults();
+    S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, margin: 30, vat: 5, lang: 'en' };
+    S.staff = [{ id: 's1', name: 'Volunteer', kind: 'production', dept: 'sewing', salary: 0, housed: 'no', housing: 0, medical: 0, visaCost: 0, visaMonths: 1, flight: 0, leave: 0, eosb: 0, other: 0 }];
+    const R = compute(S);
+    const c = R.staffById['s1'];
+    expect(c.salaryKnown).toBe(true);
+    expect(c.missing).toBe(0);
+    expect(c.total).toBe(0);
+    expect(c.hourly).toBe(0);
+  });
+
+  it('handles duplicate material names with different case', () => {
+    const S = defaults();
+    S.purchases = [
+      { id: 'p1', material: 'Silk', qty: 10, price: 50 },
+      { id: 'p2', material: 'silk', qty: 10, price: 60 },
+    ];
+    S.usage = [{ id: 'u1', dressId: 'd1', material: 'SILK', qty: 5, rework: 'no' }];
+    S.dresses = [{ id: 'd1', code: 'D1', customer: 'C', type: 'custom', start: '2026-10-01', date: '2026-10-15', price: 1000 }];
+    const R = compute(S);
+    expect(R.dresses[0].materials).toBeCloseTo(275, 1);
+  });
+
+  it('handles non-chargeable hours', () => {
+    const S = defaults();
+    S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, margin: 30, vat: 5, lang: 'en' };
+    S.staff = [{ id: 's1', name: 'T', kind: 'production', dept: 'sewing', salary: 3000, housed: 'no', housing: 0, medical: 0, visaCost: 0, visaMonths: 1, flight: 0, leave: 0, eosb: 0, other: 0 }];
+    S.villas = [{ id: 'v1', name: 'V1', rent: 1000, total: 100, workshop: 100, storage: 0, showroom: 0, office: 0, housing: 0 }];
+    S.purchases = [{ id: 'p1', date: '2026-10-01', material: 'Silk', unit: 'm', qty: 10, price: 50 }];
+    S.usage = [{ id: 'u1', dressId: 'd1', material: 'Silk', qty: 5, rework: 'no' }];
+    S.hours = [
+      { id: 'h1', date: '2026-10-15', dressId: 'd1', staffId: 's1', hours: 10, chargeable: 'yes', rework: 'no' },
+      { id: 'h2', date: '2026-10-16', dressId: 'd1', staffId: 's1', hours: 3, chargeable: 'no', rework: 'no' },
+    ];
+    S.expenses = [{ id: 'e1', month: '2026-10', category: 'production', desc: 'Elec', amount: 100 }];
+    S.dresses = [{ id: 'd1', code: 'D1', customer: 'C', type: 'custom', start: '2026-10-01', date: '2026-10-15', price: 5000, discount: 0 }];
+    const R = compute(S);
+    const d = R.dresses[0];
+    expect(d.hours).toBe(10);
+  });
+
+  it('handles missing staff reference in hours', () => {
+    const S = defaults();
+    S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, margin: 30, vat: 5, lang: 'en' };
+    S.hours = [{ id: 'h1', date: '2026-10-15', dressId: 'd1', staffId: 'nonexistent', hours: 10, chargeable: 'yes', rework: 'no' }];
+    S.dresses = [{ id: 'd1', code: 'D1', customer: 'C', type: 'custom', start: '2026-10-01', date: '2026-10-15', price: 5000, discount: 0 }];
+    const R = compute(S);
+    const d = R.dresses[0];
+    expect(d.warnings).toContain('missingStaffCost');
+  });
+
+  it('handles monthly report with no data', () => {
+    const S = defaults();
+    S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, margin: 30, vat: 5, lang: 'en' };
+    const R = compute(S);
+    expect(R.monthly).toEqual([]);
+    expect(R.totals.sales).toBe(0);
+    expect(R.totals.cost).toBe(0);
+    expect(R.totals.gross).toBe(0);
+  });
+
+  it('handles rework hours correctly', () => {
+    const S = defaults();
+    S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, margin: 30, vat: 5, lang: 'en' };
+    S.staff = [{ id: 's1', name: 'T', kind: 'production', dept: 'sewing', salary: 3000, housed: 'no', housing: 0, medical: 0, visaCost: 0, visaMonths: 1, flight: 0, leave: 0, eosb: 0, other: 0 }];
+    S.villas = [{ id: 'v1', name: 'V1', rent: 1000, total: 100, workshop: 100, storage: 0, showroom: 0, office: 0, housing: 0 }];
+    S.purchases = [{ id: 'p1', date: '2026-10-01', material: 'Silk', unit: 'm', qty: 10, price: 50 }];
+    S.usage = [{ id: 'u1', dressId: 'd1', material: 'Silk', qty: 5, rework: 'no' }];
+    S.hours = [
+      { id: 'h1', date: '2026-10-15', dressId: 'd1', staffId: 's1', hours: 10, chargeable: 'yes', rework: 'no' },
+      { id: 'h2', date: '2026-10-16', dressId: 'd1', staffId: 's1', hours: 5, chargeable: 'yes', rework: 'yes' },
+    ];
+    S.expenses = [{ id: 'e1', month: '2026-10', category: 'production', desc: 'Elec', amount: 100 }];
+    S.dresses = [{ id: 'd1', code: 'D1', customer: 'C', type: 'custom', start: '2026-10-01', date: '2026-10-15', price: 5000, discount: 0 }];
+    const R = compute(S);
+    const d = R.dresses[0];
+    expect(d.rework).toBeGreaterThan(0);
+    expect(d.labour).toBeGreaterThan(0);
+  });
+
+  it('handles multiple dresses in same month', () => {
+    const S = defaults();
+    S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, margin: 30, vat: 5, lang: 'en' };
+    S.staff = [{ id: 's1', name: 'T', kind: 'production', dept: 'sewing', salary: 3000, housed: 'no', housing: 0, medical: 0, visaCost: 0, visaMonths: 1, flight: 0, leave: 0, eosb: 0, other: 0 }];
+    S.villas = [{ id: 'v1', name: 'V1', rent: 1000, total: 100, workshop: 100, storage: 0, showroom: 0, office: 0, housing: 0 }];
+    S.purchases = [{ id: 'p1', date: '2026-10-01', material: 'Silk', unit: 'm', qty: 100, price: 50 }];
+    S.usage = [
+      { id: 'u1', dressId: 'd1', material: 'Silk', qty: 5, rework: 'no' },
+      { id: 'u2', dressId: 'd2', material: 'Silk', qty: 8, rework: 'no' },
+    ];
+    S.hours = [
+      { id: 'h1', date: '2026-10-15', dressId: 'd1', staffId: 's1', hours: 10, chargeable: 'yes', rework: 'no' },
+      { id: 'h2', date: '2026-10-20', dressId: 'd2', staffId: 's1', hours: 15, chargeable: 'yes', rework: 'no' },
+    ];
+    S.expenses = [{ id: 'e1', month: '2026-10', category: 'production', desc: 'Elec', amount: 100 }];
+    S.dresses = [
+      { id: 'd1', code: 'D1', customer: 'C1', type: 'custom', start: '2026-10-01', date: '2026-10-15', price: 5000, discount: 0 },
+      { id: 'd2', code: 'D2', customer: 'C2', type: 'custom', start: '2026-10-01', date: '2026-10-20', price: 8000, discount: 500 },
+    ];
+    const R = compute(S);
+    expect(R.dresses.length).toBe(2);
+    expect(R.monthly.length).toBe(1);
+    expect(R.monthly[0].sales).toBe(12500);
+    expect(R.totals.sales).toBe(12500);
+  });
+
+  it('handles villa with zero total area', () => {
+    const S = defaults();
+    S.villas = [{ id: 'v1', name: 'V1', rent: 1000, total: 0, workshop: 0, storage: 0, showroom: 0, office: 0, housing: 0 }];
+    const R = compute(S);
+    expect(R.villa.bad).toBe(1);
+  });
+
+  it('handles special characters in material names', () => {
+    const S = defaults();
+    S.purchases = [{ id: 'p1', material: 'Silk (Premium) - 50cm', qty: 10, price: 50 }];
+    S.usage = [{ id: 'u1', dressId: 'd1', material: 'Silk (Premium) - 50cm', qty: 5, rework: 'no' }];
+    S.dresses = [{ id: 'd1', code: 'D1', customer: 'C', type: 'custom', start: '2026-10-01', date: '2026-10-15', price: 1000 }];
+    const R = compute(S);
+    expect(R.dresses[0].materials).toBeGreaterThan(0);
+  });
 });
