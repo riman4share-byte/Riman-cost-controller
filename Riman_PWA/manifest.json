@@ -1,0 +1,17 @@
+{
+  "name": "Riman Cost Control",
+  "short_name": "Riman Cost",
+  "description": "Cost control for a dress atelier: dress costing, materials, labour, overheads, profitability.",
+  "start_url": "./Riman_Cost_App.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f6f3ec",
+  "theme_color": "#0f766e",
+  "lang": "en",
+  "dir": "auto",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
