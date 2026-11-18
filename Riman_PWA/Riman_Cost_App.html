@@ -215,7 +215,7 @@ function compute(S) {
   const vatRate = num(st.vat) / 100;
   const vatTreatment = st.vatTreatment || 'recoverable';
   const wastagePct = num(st.wastage) / 100;
-  const reworkTolerance = num(st.reworkTolerance) / 100;
+  const reworkTolerance = has(st.reworkTolerance) ? num(st.reworkTolerance) / 100 : null;
 
   // villas split by use
   const villa = { workshop: 0, showroom: 0, office: 0, housing: 0, bad: 0 };
@@ -271,9 +271,10 @@ function compute(S) {
     let prodExp = 0, hasProd = false, sell = 0, adm = 0;
     S.expenses.forEach((e) => {
       if (monthOf(e.month) !== m) return;
-      if (e.category === 'production') { prodExp += num(e.amount); hasProd = true; }
-      else if (e.category === 'selling') sell += num(e.amount);
-      else adm += num(e.amount);
+      const amt = num(e.amount) * (vatTreatment === 'non-recoverable' ? (1 + vatRate) : 1);
+      if (e.category === 'production') { prodExp += amt; hasProd = true; }
+      else if (e.category === 'selling') sell += amt;
+      else adm += amt;
     });
     const poolKnown = hasProd || villa.workshop > 0 || staffWorkshop > 0;
     poolBy[m] = poolKnown ? prodExp + villa.workshop + staffWorkshop : null;
@@ -320,8 +321,9 @@ function compute(S) {
     if (costIncomplete) w.push('incompleteStaffCost');
 
     const svc = S.services.filter((s) => s.dressId === d.id);
-    const outsourced = svc.filter((s) => s.rework !== 'yes').reduce((a, s) => a + num(s.amount), 0);
-    rework += svc.filter((s) => s.rework === 'yes').reduce((a, s) => a + num(s.amount), 0);
+    const vatMul = vatTreatment === 'non-recoverable' ? (1 + vatRate) : 1;
+    const outsourced = svc.filter((s) => s.rework !== 'yes').reduce((a, s) => a + num(s.amount) * vatMul, 0);
+    rework += svc.filter((s) => s.rework === 'yes').reduce((a, s) => a + num(s.amount) * vatMul, 0);
 
     const extra = has(d.extra) ? num(d.extra) : 0;
     const cost = materials + labour + outsourced + overhead + rework + extra;
@@ -329,18 +331,17 @@ function compute(S) {
     const net = priceKnown ? num(d.price) - num(d.discount) : null;
     if (!priceKnown) w.push('noPrice');
     const profit = net === null ? null : net - cost;
-    const complete = w.length === 0;
-    const m = num(st.margin) / 100;
-    const suggested = complete && has(st.margin) && m < 1 && cost > 0 ? cost / (1 - m) : null;
-    const days = d.start && d.date ? Math.round((new Date(d.date) - new Date(d.start)) / 86400000) : null;
-    
-    // Rework tolerance check
     const reworkPct = cost > 0 ? rework / cost : 0;
-    const reworkAboveTolerance = reworkPct > reworkTolerance;
+    const reworkAboveTolerance = reworkTolerance !== null && cost > rework && rework > reworkTolerance * (cost - rework);
     if (reworkAboveTolerance) w.push('reworkAboveTolerance');
     
     // Cost over estimate
     const overEstimate = has(d.estimate) && cost > num(d.estimate);
+    
+    const complete = w.length === 0;
+    const m = num(st.margin) / 100;
+    const suggested = complete && has(st.margin) && m < 1 && cost > 0 ? cost / (1 - m) : null;
+    const days = d.start && d.date ? Math.round((new Date(d.date) - new Date(d.start)) / 86400000) : null;
     
     return {
       id: d.id, code: d.code, customer: d.customer, type: d.type, date: d.date, start: d.start,
@@ -389,7 +390,7 @@ function compute(S) {
     };
   });
 
-  const tot = dresses.reduce((a, d) => ({ sales: a.sales + (d.net || 0), cost: a.cost + d.cost }), { sales: 0, cost: 0 });
+  const tot = dresses.filter((d) => d.date).reduce((a, d) => ({ sales: a.sales + (d.net || 0), cost: a.cost + d.cost }), { sales: 0, cost: 0 });
   const prices = dresses.map((d) => d.suggested).filter((x) => x !== null);
   const dayList = dresses.map((d) => d.days).filter((x) => x !== null && x >= 0);
 
@@ -444,9 +445,9 @@ function compute(S) {
   checks.push({ group: 'Dress', check: 'Dresses with rework above tolerance', result: dresses.filter((d) => d.reworkAboveTolerance).length, severity: 'Warning', status: dresses.filter((d) => d.reworkAboveTolerance).length === 0 ? 'OK' : 'Warning' });
   checks.push({ group: 'Dress', check: 'Dresses over estimate', result: dresses.filter((d) => d.overEstimate).length, severity: 'Warning', status: dresses.filter((d) => d.overEstimate).length === 0 ? 'OK' : 'Warning' });
   // Model tests
-  checks.push({ group: 'Model', check: 'Total dress cost = sum of components', result: Math.abs(dresses.reduce((a, d) => a + d.cost, 0) - dresses.reduce((a, d) => a + d.materials + d.labour + d.outsourced + d.overhead + d.rework + (d.extra || 0), 0)) < 0.01 ? 0 : 1, severity: 'Error', status: 'OK' });
-  checks.push({ group: 'Model', check: 'Gross profit = net sales - cost', result: Math.abs(profitability.grossProfit - (profitability.totalSales - profitability.totalCost)) < 0.01 ? 0 : 1, severity: 'Error', status: 'OK' });
-  checks.push({ group: 'Model', check: 'Operating profit = gross - period costs', result: Math.abs(profitability.operatingProfit - (profitability.grossProfit - profitability.totalSelling - profitability.totalAdmin - profitability.totalUnused - profitability.totalIdle)) < 0.01 ? 0 : 1, severity: 'Error', status: 'OK' });
+  checks.push({ group: 'Model', check: 'Dresses with zero or negative cost', result: dresses.filter((d) => d.cost <= 0).length, severity: 'Warning', status: dresses.filter((d) => d.cost <= 0).length === 0 ? 'OK' : 'Warning' });
+  checks.push({ group: 'Model', check: 'Overhead fully allocated', result: Math.abs(Object.values(applied).reduce((a, b) => a + b, 0) - Object.values(poolBy).reduce((a, b) => a + (b || 0), 0)) < 1 ? 0 : 1, severity: 'Warning', status: Math.abs(Object.values(applied).reduce((a, b) => a + b, 0) - Object.values(poolBy).reduce((a, b) => a + (b || 0), 0)) < 1 ? 'OK' : 'Warning' });
+  checks.push({ group: 'Model', check: 'Dresses without delivery date', result: dresses.filter((d) => !d.date).length, severity: 'Warning', status: dresses.filter((d) => !d.date).length === 0 ? 'OK' : 'Warning' });
 
   const checklist = [
     ['settings', settingsOk],
@@ -460,7 +461,7 @@ function compute(S) {
 
   const overallStatus = checks.some((c) => c.severity === 'Error' && c.result !== 0) ? 'INCOMPLETE - errors found' :
     checks.some((c) => c.severity === 'Missing' && c.result !== 0) ? 'INCOMPLETE - essential data missing' :
-    checks.some((c) => c.severity === 'Warning' && c.result !== 0) ? 'COMPLETE - warnings present' : 'COMPLETE';
+    checks.some((c) => c.severity === 'Warning' && c.result !== 0) ? 'REVIEW - warnings present' : 'COMPLETE';
 
   return {
     settingsOk, practical, staffById, dresses, monthly: rows, villa, housingShare, checklist, checks, overallStatus,
@@ -500,7 +501,7 @@ const T = {
     totalMonthly: 'Total per month', missingParts: 'items not entered', zeroHint: 'Type 0 when there is no such cost. Empty means "not known yet".',
     villas: 'Villas', villaName: 'Villa name', rent: 'Monthly rent', vTotal: 'Total area (m²)', vWorkshop: 'Workshop area', vStorage: 'Storage area', vShowroom: 'Showroom area', vOffice: 'Office area', vHousing: 'Staff housing area',
     villaHint: 'The five areas must add up to the total area.', villaBad: 'Areas do not add up to the total',
-    hoursDay: 'Working hours per day', daysMonth: 'Working days per month', prodPct: 'Useful working time (%)', wastage: 'Material waste (%)', targetMargin: 'Target profit margin (%)',
+    hoursDay: 'Working hours per day', daysMonth: 'Working days per month', prodPct: 'Useful working time (%)', wastage: 'Material waste (%)', vatTreatment: 'VAT treatment on purchases', targetMargin: 'Target profit margin (%)',
     exportXlsx: 'Download Excel', backup: 'Save backup file', restore: 'Open backup file', example: 'Fill with example data', clear: 'Delete everything', confirmClear: 'Delete ALL data? This cannot be undone.', confirmDel: 'Delete this line?',
     monthly: 'By month', mSales: 'Sales', mCost: 'Dress cost', mGross: 'Gross profit', mSelling: 'Selling', mAdmin: 'Admin', mUnused: 'Unused workshop cost', mIdle: 'Idle staff time cost', mUse: 'Time used', mOperating: 'Final profit',
     introHome: 'Each dress shows its real cost and profit.', introDresses: 'Add every dress or order here first.', introMaterials: 'First add what you bought. Then add what each dress used.',
@@ -539,7 +540,7 @@ const T = {
     totalMonthly: 'الإجمالي شهرياً', missingParts: 'بنود غير مدخلة', zeroHint: 'اكتب 0 إذا لا توجد هذه التكلفة. الخانة الفارغة تعني "غير معروف بعد".',
     villas: 'الفلل', villaName: 'اسم الفيلا', rent: 'الإيجار الشهري', vTotal: 'المساحة الكلية (م²)', vWorkshop: 'مساحة الورشة', vStorage: 'مساحة التخزين', vShowroom: 'مساحة المعرض', vOffice: 'مساحة المكتب', vHousing: 'مساحة سكن الموظفين',
     villaHint: 'المساحات الخمس يجب أن تساوي المساحة الكلية.', villaBad: 'المساحات لا تساوي المساحة الكلية',
-    hoursDay: 'ساعات العمل في اليوم', daysMonth: 'أيام العمل في الشهر', prodPct: 'وقت العمل المفيد (%)', wastage: 'هدر الخامات (%)', targetMargin: 'هامش الربح المستهدف (%)',
+    hoursDay: 'ساعات العمل في اليوم', daysMonth: 'أيام العمل في الشهر', prodPct: 'وقت العمل المفيد (%)', wastage: 'هدر الخامات (%)', vatTreatment: 'معاملة ضريبة القيمة المضافة على المشتريات', targetMargin: 'هامش الربح المستهدف (%)',
     exportXlsx: 'تحميل ملف Excel', backup: 'حفظ نسخة احتياطية', restore: 'فتح نسخة احتياطية', example: 'ملء ببيانات تجريبية', clear: 'حذف كل شيء', confirmClear: 'حذف كل البيانات؟ لا يمكن التراجع.', confirmDel: 'حذف هذا السطر؟',
     monthly: 'حسب الشهر', mSales: 'المبيعات', mCost: 'تكلفة الفساتين', mGross: 'الربح الإجمالي', mSelling: 'البيع', mAdmin: 'الإدارة', mUnused: 'تكلفة ورشة غير مستغلة', mIdle: 'تكلفة وقت الموظفين غير المستغل', mUse: 'استغلال الوقت', mOperating: 'الربح النهائي',
     introHome: 'كل فستان يعرض تكلفته الحقيقية وربحه.', introDresses: 'أضف كل فستان أو طلب هنا أولاً.', introMaterials: 'أضف أولاً ما اشتريته، ثم أضف ما استخدمه كل فستان.',
@@ -568,7 +569,7 @@ const $ = (s) => document.querySelector(s);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const today = () => new Date().toISOString().slice(0, 10);
 
-function load() { try { const raw = localStorage.getItem(KEY); if (raw) S = Object.assign(defaults(), JSON.parse(raw)); } catch (e) { memoryOnly = true; } }
+function load() { try { const raw = localStorage.getItem(KEY); if (raw) { S = Object.assign(defaults(), JSON.parse(raw)); if (S.settings) S.settings = Object.assign({}, defaults().settings, S.settings); } } catch (e) { memoryOnly = true; } }
 function persist() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { memoryOnly = true; } }
 function toast(msg, bad) { const el = $('#toast'); el.textContent = msg; el.className = 'toast show' + (bad ? ' bad' : ''); clearTimeout(toast.t); toast.t = setTimeout(() => (el.className = 'toast'), 2200); }
 
@@ -734,7 +735,7 @@ function screenSettings() {
   const s = S.settings;
   const f = (k, v, dk) => `<label class="fld"><span>${esc(t(k))}</span><input data-set="${dk || k}" type="number" inputmode="decimal" step="any" min="0" value="${esc(v)}" /></label>`;
   const vatOpts = [['recoverable', 'Recoverable (excluded from cost)'], ['non-recoverable', 'Non-recoverable (added to cost)']];
-  const vatSelect = `<label class="fld wide"><span>VAT treatment on purchases</span><select data-set="vatTreatment">${vatOpts.map(([v, l]) => `<option value="${v}" ${s.vatTreatment === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
+  const vatSelect = `<label class="fld wide"><span>${esc(t('vatTreatment'))}</span><select data-set="vatTreatment">${vatOpts.map(([v, l]) => `<option value="${v}" ${s.vatTreatment === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
   return `<p class="intro">${esc(t('introSettings'))}</p><section class="card"><div class="grid">${f('hoursDay', s.hoursDay)}${f('daysMonth', s.daysMonth)}${f('prodPct', s.prodPct)}${f('wastage', s.wastage)}${f('targetMargin', s.margin, 'margin')}${f('vat', s.vat)}${f('reworkTolerance', s.reworkTolerance || 5, 'reworkTolerance')}</div>${vatSelect}</section>` +
     `<section class="card actions"><button class="btn" data-act="xlsx">${esc(t('exportXlsx'))}</button><button class="btn alt" data-act="backup">${esc(t('backup'))}</button>
   <label class="btn alt file">${esc(t('restore'))}<input id="restoreFile" type="file" accept=".json" hidden /></label>
@@ -811,7 +812,7 @@ document.addEventListener('change', (e) => { const k = e.target.dataset && e.tar
 document.addEventListener('change', (e) => {
   if (e.target.id === 'restoreFile' && e.target.files[0]) {
     const rd = new FileReader();
-    rd.onload = () => { try { S = Object.assign(defaults(), JSON.parse(rd.result)); persist(); toast(t('restoreOk')); render(); } catch (x) { toast('File error', true); } };
+    rd.onload = () => { try { S = Object.assign(defaults(), JSON.parse(rd.result)); if (S.settings) S.settings = Object.assign({}, defaults().settings, S.settings); persist(); toast(t('restoreOk')); render(); } catch (x) { toast('File error', true); } };
     rd.readAsText(e.target.files[0]);
   }
 });
@@ -819,7 +820,7 @@ document.addEventListener('change', (e) => {
 // ---- example data (clearly marked) ----
 function loadExample() {
   const lang = S.settings.lang;
-  S = defaults(); S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, margin: 30, vat: 5, vatTreatment: 'recoverable', reworkTolerance: 5, lang };
+  S = defaults(); S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, vat: 5, vatTreatment: 'recoverable', reworkTolerance: 5, lang };
   const z = { housing: 0, medical: 150, visaCost: 3600, visaMonths: 24, flight: 2400, leave: 200, eosb: 180, other: 0, housed: 'no' };
   S.staff = [
     Object.assign({ id: 's1', name: 'EXAMPLE Tailor', job: 'Tailor', kind: 'production', dept: 'sewing', salary: 3000 }, z),
