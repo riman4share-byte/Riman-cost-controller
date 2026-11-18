@@ -501,7 +501,7 @@ const T = {
     totalMonthly: 'Total per month', missingParts: 'items not entered', zeroHint: 'Type 0 when there is no such cost. Empty means "not known yet".',
     villas: 'Villas', villaName: 'Villa name', rent: 'Monthly rent', vTotal: 'Total area (m²)', vWorkshop: 'Workshop area', vStorage: 'Storage area', vShowroom: 'Showroom area', vOffice: 'Office area', vHousing: 'Staff housing area',
     villaHint: 'The five areas must add up to the total area.', villaBad: 'Areas do not add up to the total',
-    hoursDay: 'Working hours per day', daysMonth: 'Working days per month', prodPct: 'Useful working time (%)', wastage: 'Material waste (%)', vatTreatment: 'VAT treatment on purchases', targetMargin: 'Target profit margin (%)',
+    hoursDay: 'Working hours per day', daysMonth: 'Working days per month', prodPct: 'Useful working time (%)', wastage: 'Material waste (%)', vatTreatment: 'VAT treatment on purchases', warnReworkAboveTolerance: 'Rework above the allowed level', withoutDeliveryDate: 'without a delivery date are not in the totals above', targetMargin: 'Target profit margin (%)',
     exportXlsx: 'Download Excel', backup: 'Save backup file', restore: 'Open backup file', example: 'Fill with example data', clear: 'Delete everything', confirmClear: 'Delete ALL data? This cannot be undone.', confirmDel: 'Delete this line?',
     monthly: 'By month', mSales: 'Sales', mCost: 'Dress cost', mGross: 'Gross profit', mSelling: 'Selling', mAdmin: 'Admin', mUnused: 'Unused workshop cost', mIdle: 'Idle staff time cost', mUse: 'Time used', mOperating: 'Final profit',
     introHome: 'Each dress shows its real cost and profit.', introDresses: 'Add every dress or order here first.', introMaterials: 'First add what you bought. Then add what each dress used.',
@@ -540,7 +540,7 @@ const T = {
     totalMonthly: 'الإجمالي شهرياً', missingParts: 'بنود غير مدخلة', zeroHint: 'اكتب 0 إذا لا توجد هذه التكلفة. الخانة الفارغة تعني "غير معروف بعد".',
     villas: 'الفلل', villaName: 'اسم الفيلا', rent: 'الإيجار الشهري', vTotal: 'المساحة الكلية (م²)', vWorkshop: 'مساحة الورشة', vStorage: 'مساحة التخزين', vShowroom: 'مساحة المعرض', vOffice: 'مساحة المكتب', vHousing: 'مساحة سكن الموظفين',
     villaHint: 'المساحات الخمس يجب أن تساوي المساحة الكلية.', villaBad: 'المساحات لا تساوي المساحة الكلية',
-    hoursDay: 'ساعات العمل في اليوم', daysMonth: 'أيام العمل في الشهر', prodPct: 'وقت العمل المفيد (%)', wastage: 'هدر الخامات (%)', vatTreatment: 'معاملة ضريبة القيمة المضافة على المشتريات', targetMargin: 'هامش الربح المستهدف (%)',
+    hoursDay: 'ساعات العمل في اليوم', daysMonth: 'أيام العمل في الشهر', prodPct: 'وقت العمل المفيد (%)', wastage: 'هدر الخامات (%)', vatTreatment: 'معاملة ضريبة القيمة المضافة على المشتريات', withoutDeliveryDate: 'بدون تاريخ تسليم غير مدرجة في الإجماليات أعلاه', warnReworkAboveTolerance: 'إعادة عمل تتجاوز المستوى المسموح', targetMargin: 'هامش الربح المستهدف (%)',
     exportXlsx: 'تحميل ملف Excel', backup: 'حفظ نسخة احتياطية', restore: 'فتح نسخة احتياطية', example: 'ملء ببيانات تجريبية', clear: 'حذف كل شيء', confirmClear: 'حذف كل البيانات؟ لا يمكن التراجع.', confirmDel: 'حذف هذا السطر؟',
     monthly: 'حسب الشهر', mSales: 'المبيعات', mCost: 'تكلفة الفساتين', mGross: 'الربح الإجمالي', mSelling: 'البيع', mAdmin: 'الإدارة', mUnused: 'تكلفة ورشة غير مستغلة', mIdle: 'تكلفة وقت الموظفين غير المستغل', mUse: 'استغلال الوقت', mOperating: 'الربح النهائي',
     introHome: 'كل فستان يعرض تكلفته الحقيقية وربحه.', introDresses: 'أضف كل فستان أو طلب هنا أولاً.', introMaterials: 'أضف أولاً ما اشتريته، ثم أضف ما استخدمه كل فستان.',
@@ -651,6 +651,8 @@ function screenHome(R) {
     h += `<section class="card"><h3>${esc(t('checklist'))} <span class="pill">${done}/${R.checklist.length} ${esc(t('ckDone'))}</span></h3><ul class="ck">${R.checklist.map((c) => `<li class="${c.done ? 'done' : ''}">${ic(c.done ? 'check' : 'circle')}${esc(t('ck_' + c.k))}</li>`).join('')}</ul></section>`;
   }
   h += `<div class="tot"><div><small>${esc(t('sales'))}</small><b>${money(R.totals.sales)}</b></div><div><small>${esc(t('cost'))}</small><b>${money(R.totals.cost)}</b></div><div class="${R.totals.gross < 0 ? 'neg' : 'pos'}"><small>${esc(t('profit'))}</small><b>${money(R.totals.gross)}</b></div></div>`;
+  const undated = R.dresses.filter((d) => !d.date).length;
+  if (undated > 0) h += `<p class="hint">${undated} ${esc(t('dresses'))} ${esc(t('withoutDeliveryDate'))}</p>`;
   if (!R.dresses.length) h += `<p class="empty">${esc(t('empty'))} <button class="link" data-go="dresses">${esc(t('dresses'))}</button></p>`;
   [...R.dresses].sort((a, b) => ((a.date || '') < (b.date || '') ? 1 : -1)).forEach((d) => {
     const depts = Object.keys(d.byDept).map((k) => `${t('d' + k)} ${d.byDept[k].hours}h`).join(' · ');
@@ -820,7 +822,7 @@ document.addEventListener('change', (e) => {
 // ---- example data (clearly marked) ----
 function loadExample() {
   const lang = S.settings.lang;
-  S = defaults(); S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, vat: 5, vatTreatment: 'recoverable', reworkTolerance: 5, lang };
+  S = defaults(); S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, margin: 30, vat: 5, vatTreatment: 'recoverable', withoutDeliveryDate: 'بدون تاريخ تسليم غير مدرجة في الإجماليات أعلاه', reworkTolerance: 5, lang };
   const z = { housing: 0, medical: 150, visaCost: 3600, visaMonths: 24, flight: 2400, leave: 200, eosb: 180, other: 0, housed: 'no' };
   S.staff = [
     Object.assign({ id: 's1', name: 'EXAMPLE Tailor', job: 'Tailor', kind: 'production', dept: 'sewing', salary: 3000 }, z),
