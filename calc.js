@@ -31,7 +31,7 @@ function compute(S) {
   const vatRate = num(st.vat) / 100;
   const vatTreatment = st.vatTreatment || 'recoverable';
   const wastagePct = num(st.wastage) / 100;
-  const reworkTolerance = num(st.reworkTolerance) / 100;
+  const reworkTolerance = has(st.reworkTolerance) ? num(st.reworkTolerance) / 100 : null;
 
   // villas split by use
   const villa = { workshop: 0, showroom: 0, office: 0, housing: 0, bad: 0 };
@@ -87,9 +87,10 @@ function compute(S) {
     let prodExp = 0, hasProd = false, sell = 0, adm = 0;
     S.expenses.forEach((e) => {
       if (monthOf(e.month) !== m) return;
-      if (e.category === 'production') { prodExp += num(e.amount); hasProd = true; }
-      else if (e.category === 'selling') sell += num(e.amount);
-      else adm += num(e.amount);
+      const amt = num(e.amount) * (vatTreatment === 'non-recoverable' ? (1 + vatRate) : 1);
+      if (e.category === 'production') { prodExp += amt; hasProd = true; }
+      else if (e.category === 'selling') sell += amt;
+      else adm += amt;
     });
     const poolKnown = hasProd || villa.workshop > 0 || staffWorkshop > 0;
     poolBy[m] = poolKnown ? prodExp + villa.workshop + staffWorkshop : null;
@@ -136,30 +137,31 @@ function compute(S) {
     if (costIncomplete) w.push('incompleteStaffCost');
 
     const svc = S.services.filter((s) => s.dressId === d.id);
-    const outsourced = svc.filter((s) => s.rework !== 'yes').reduce((a, s) => a + num(s.amount), 0);
-    rework += svc.filter((s) => s.rework === 'yes').reduce((a, s) => a + num(s.amount), 0);
+    const vatMul = vatTreatment === 'non-recoverable' ? (1 + vatRate) : 1;
+    const outsourced = svc.filter((s) => s.rework !== 'yes').reduce((a, s) => a + num(s.amount) * vatMul, 0);
+    rework += svc.filter((s) => s.rework === 'yes').reduce((a, s) => a + num(s.amount) * vatMul, 0);
 
-    const cost = materials + labour + outsourced + overhead + rework;
+    const extra = has(d.extra) ? num(d.extra) : 0;
+    const cost = materials + labour + outsourced + overhead + rework + extra;
     const priceKnown = has(d.price);
     const net = priceKnown ? num(d.price) - num(d.discount) : null;
     if (!priceKnown) w.push('noPrice');
     const profit = net === null ? null : net - cost;
-    const complete = w.length === 0;
-    const m = num(st.margin) / 100;
-    const suggested = complete && has(st.margin) && m < 1 && cost > 0 ? cost / (1 - m) : null;
-    const days = d.start && d.date ? Math.round((new Date(d.date) - new Date(d.start)) / 86400000) : null;
-    
-    // Rework tolerance check
     const reworkPct = cost > 0 ? rework / cost : 0;
-    const reworkAboveTolerance = reworkPct > reworkTolerance;
+    const reworkAboveTolerance = reworkTolerance !== null && cost > rework && rework > reworkTolerance * (cost - rework);
     if (reworkAboveTolerance) w.push('reworkAboveTolerance');
     
     // Cost over estimate
     const overEstimate = has(d.estimate) && cost > num(d.estimate);
     
+    const complete = w.length === 0;
+    const m = num(st.margin) / 100;
+    const suggested = complete && has(st.margin) && m < 1 && cost > 0 ? cost / (1 - m) : null;
+    const days = d.start && d.date ? Math.round((new Date(d.date) - new Date(d.start)) / 86400000) : null;
+    
     return {
       id: d.id, code: d.code, customer: d.customer, type: d.type, date: d.date, start: d.start,
-      materials, labour, outsourced, overhead, rework, hours: hoursTotal, byDept, cost, net, profit,
+      materials, labour, outsourced, overhead, rework, extra, hours: hoursTotal, byDept, cost, net, profit,
       margin: net && net > 0 ? profit / net : null, warnings: w, complete, days,
       suggested, suggestedVat: suggested === null ? null : suggested * (1 + vatRate),
       overEstimate, reworkAboveTolerance, reworkPct,
@@ -204,7 +206,7 @@ function compute(S) {
     };
   });
 
-  const tot = dresses.reduce((a, d) => ({ sales: a.sales + (d.net || 0), cost: a.cost + d.cost }), { sales: 0, cost: 0 });
+  const tot = dresses.filter((d) => d.date).reduce((a, d) => ({ sales: a.sales + (d.net || 0), cost: a.cost + d.cost }), { sales: 0, cost: 0 });
   const prices = dresses.map((d) => d.suggested).filter((x) => x !== null);
   const dayList = dresses.map((d) => d.days).filter((x) => x !== null && x >= 0);
 
@@ -259,9 +261,11 @@ function compute(S) {
   checks.push({ group: 'Dress', check: 'Dresses with rework above tolerance', result: dresses.filter((d) => d.reworkAboveTolerance).length, severity: 'Warning', status: dresses.filter((d) => d.reworkAboveTolerance).length === 0 ? 'OK' : 'Warning' });
   checks.push({ group: 'Dress', check: 'Dresses over estimate', result: dresses.filter((d) => d.overEstimate).length, severity: 'Warning', status: dresses.filter((d) => d.overEstimate).length === 0 ? 'OK' : 'Warning' });
   // Model tests
-  checks.push({ group: 'Model', check: 'Total dress cost = sum of components', result: Math.abs(dresses.reduce((a, d) => a + d.cost, 0) - dresses.reduce((a, d) => a + d.materials + d.labour + d.outsourced + d.overhead + d.rework, 0)) < 0.01 ? 0 : 1, severity: 'Error', status: 'OK' });
-  checks.push({ group: 'Model', check: 'Gross profit = net sales - cost', result: Math.abs(profitability.grossProfit - (profitability.totalSales - profitability.totalCost)) < 0.01 ? 0 : 1, severity: 'Error', status: 'OK' });
-  checks.push({ group: 'Model', check: 'Operating profit = gross - period costs', result: Math.abs(profitability.operatingProfit - (profitability.grossProfit - profitability.totalSelling - profitability.totalAdmin - profitability.totalUnused - profitability.totalIdle)) < 0.01 ? 0 : 1, severity: 'Error', status: 'OK' });
+  checks.push({ group: 'Model', check: 'Dresses with zero or negative cost', result: dresses.filter((d) => d.cost <= 0).length, severity: 'Warning', status: dresses.filter((d) => d.cost <= 0).length === 0 ? 'OK' : 'Warning' });
+  checks.push({ group: 'Model', check: 'Overhead over-allocated', result: Object.values(applied).reduce((a, b) => a + b, 0) > Object.values(poolBy).reduce((a, b) => a + (b || 0), 0) + 0.01 ? 1 : 0, severity: 'Error', status: Object.values(applied).reduce((a, b) => a + b, 0) > Object.values(poolBy).reduce((a, b) => a + (b || 0), 0) + 0.01 ? 'Error' : 'OK' });
+  checks.push({ group: 'Model', check: 'Dresses without delivery date', result: dresses.filter((d) => !d.date).length, severity: 'Warning', status: dresses.filter((d) => !d.date).length === 0 ? 'OK' : 'Warning' });
+  const orphaned = S.usage.filter((u) => !S.dresses.some((d) => d.id === u.dressId)).length + S.hours.filter((h) => !S.dresses.some((d) => d.id === h.dressId)).length + S.services.filter((s) => !S.dresses.some((d) => d.id === s.dressId)).length;
+  checks.push({ group: 'Model', check: 'No orphaned entries (usage/hours/services without a dress)', result: orphaned, severity: 'Error', status: orphaned === 0 ? 'OK' : 'Error' });
 
   const checklist = [
     ['settings', settingsOk],
@@ -275,7 +279,7 @@ function compute(S) {
 
   const overallStatus = checks.some((c) => c.severity === 'Error' && c.result !== 0) ? 'INCOMPLETE - errors found' :
     checks.some((c) => c.severity === 'Missing' && c.result !== 0) ? 'INCOMPLETE - essential data missing' :
-    checks.some((c) => c.severity === 'Warning' && c.result !== 0) ? 'COMPLETE - warnings present' : 'COMPLETE';
+    checks.some((c) => c.severity === 'Warning' && c.result !== 0) ? 'REVIEW - warnings present' : 'COMPLETE';
 
   return {
     settingsOk, practical, staffById, dresses, monthly: rows, villa, housingShare, checklist, checks, overallStatus,

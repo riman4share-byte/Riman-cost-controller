@@ -205,6 +205,22 @@ describe('compute - dress cost', () => {
     expect(d.warnings).toEqual([]);
   });
 });
+  it('includes extra costs in dress cost', () => {
+    const S = defaults();
+    S.settings = { hoursDay: 8, daysMonth: 26, prodPct: 80, wastage: 5, margin: 30, vat: 5, lang: 'en' };
+    S.staff = [{ id: 's1', name: 'Tailor', kind: 'production', dept: 'sewing', salary: 3000, housed: 'no', housing: 0, medical: 150, visaCost: 0, visaMonths: 1, flight: 0, leave: 0, eosb: 0, other: 0 }];
+    S.villas = [{ id: 'v1', name: 'V1', rent: 12000, total: 400, workshop: 250, storage: 50, showroom: 60, office: 20, housing: 20 }];
+    S.purchases = [{ id: 'p1', date: '2026-10-01', material: 'Silk', unit: 'm', qty: 60, price: 55 }];
+    S.usage = [{ id: 'u1', dressId: 'd1', material: 'Silk', qty: 12, rework: 'no' }];
+    S.hours = [{ id: 'h1', date: '2026-10-15', dressId: 'd1', staffId: 's1', hours: 24, chargeable: 'yes', rework: 'no' }];
+    S.expenses = [{ id: 'e1', month: '2026-10', category: 'production', desc: 'Electricity', amount: 1800 }];
+    S.dresses = [{ id: 'd1', code: 'EX-001', customer: 'Customer', type: 'custom', start: '2026-10-01', date: '2026-10-15', price: 9500, discount: 500, estimate: 4000, extra: 250 }];
+    const R = compute(S);
+    const d = R.dresses[0];
+    expect(d.extra).toBe(250);
+    expect(d.cost).toBeGreaterThan(250);
+  });
+
 
 describe('compute - warnings', () => {
   it('warns when no materials', () => {
